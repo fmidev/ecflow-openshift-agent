@@ -4,6 +4,7 @@ import os
 import time
 import logging
 import datetime as dt
+import tempfile
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -99,6 +100,16 @@ def canonical_name(name, max_len=63):
     return name
 
 
+def set_kubeconfig():
+    try:
+        os.mkdir("/tmp/oc-agent")
+    except:
+        pass
+
+    tmpfile = tempfile.NamedTemporaryFile(dir="/tmp/oc-agent", mode='w+t', delete=False)
+    os.environ['KUBECONFIG'] = tmpfile.name
+    return tmpfile
+
 class Agent:
     def __init__(
         self,
@@ -112,6 +123,7 @@ class Agent:
     ):
         self.project = project
         self.api_server_url = api_server_url
+        self.kubeconfig = set_kubeconfig()
 
         with oc.api_server(self.api_server_url), oc.project(self.project):
             if username is not None and password is not None:
@@ -139,6 +151,13 @@ class Agent:
                 logging.warning(
                     "Logged in to project default, possible problem with privileges"
                 )
+
+    def __del__(self):
+        self.kubeconfig.close()
+        try:
+            os.unlink(self.kubeconfig.name)
+        except:
+            pass
 
     def login_with_token(self, token):
         assert token is not None, "No token given"
@@ -183,11 +202,10 @@ class Agent:
         template = oc.APIObject(string_to_model=r.out().strip())
         template.model.metadata.namespace = ""
 
-        logging.debug(template.as_json())
+        # logging.debug(template.as_json())
         num_objects = len(template.model.objects)
 
         logging.info(f"Found {template.kind()} '{template.name()}' from server")
-        logging.info(f"Given template parameters are: {parameters}")
 
         processed_template = template.process(parameters=parameters)
         logging.info(f"Processed template with parameters: {parameters}")
@@ -195,6 +213,7 @@ class Agent:
         active_deadlines = [
             x.model.spec.template.spec.activeDeadlineSeconds for x in processed_template
         ]
+
         timeout_s = timeout
         if timeout_s[-1] == "s":
             timeout_s = int(timeout[:-1])
@@ -261,6 +280,12 @@ class Agent:
         r.fail_if(f"Unable to delete {kind} {name}")
 
     def wait_until_finished(self, obj, timeout):
+        def dump_failed_pod_information(pod):
+            logging.error("{}".format(pod.describe()))
+
+            for k, v in pod.logs().items():
+                logging.error("{}".format(v.replace("\\n", "\n")))
+
         logging.info(
             "Waiting for {}/{} to be ready, timeout={}".format(
                 obj.model.kind, obj.model.metadata.name, timeout
@@ -269,47 +294,79 @@ class Agent:
 
         return_value = False
 
-        # oc.tracking()
-
         # timeout needs to be int from this point on
         timeout_s = timeout
         if timeout_s[-1] == "s":
             timeout_s = int(timeout[:-1])
-        with oc.timeout(timeout_s):
 
-            last = dt.datetime.now()
-            wait_time = dt.timedelta(seconds=timeout_s)
+        start = dt.datetime.now()
+        last = dt.datetime.now()
+        remaining_wait_time = dt.timedelta(seconds=timeout_s)
 
-            while True:
-                try:
-                    obj = oc.selector(
-                        "{}/{}".format(obj.model.kind, obj.model.metadata.name)
-                    ).object()
-                except oc.OpenShiftPythonException as e:
+        job_found = False
+
+        for i in range(5):
+            # wait max 5 seconds for job to be created to openshift server
+            o = oc.selector("{}/{}".format(obj.model.kind, obj.model.metadata.name))
+            if o.count_existing() > 0:
+                job_found = True
+                break
+
+            time.sleep(1)
+
+        if job_found == False:
+            logging.error("{}/{} not created to server after 5 seconds".format(obj.model.kind, obj.model.metadata.name))
+            return False
+
+        while True:
+            time.sleep(1)
+
+            if remaining_wait_time < dt.timedelta(seconds=0):
+                logging.error("Timeout value {} reached".format(timeout))
+                sel = oc.selector("pod", labels={"job-name": obj.model.metadata.name})
+
+                for pod in sel.objects():
+                    dump_failed_pod_information(pod)
+
+                return False
+
+            now = dt.datetime.now()
+            if now - last > dt.timedelta(seconds=20):
+                remaining_wait_time -= dt.timedelta(seconds=20)
+                logging.info("Still waiting, {} remaining".format(remaining_wait_time))
+                last = now
+
+            try:
+                o = oc.selector("{}/{}".format(obj.model.kind, obj.model.metadata.name))
+                if o.count_existing() == 0:
+                    logging.error("Did not find object {}/{}".format(obj.model.kind, obj.model.metadata.name))
+                    return False
+                o = o.object()
+            except oc.OpenShiftPythonException as e:
+                if "result" in e.as_dict():
                     result = e.as_dict()["result"].as_dict()
                     if result["actions"][0]["timeout"]:
                         logging.error("Timeout value {} reached".format(timeout))
+                        sel = oc.selector(
+                            "pod", labels={"job-name": obj.model.metadata.name}
+                        )
+
+                        for pod in sel.objects():
+                            dump_failed_pod_information(pod)
+
                         return False
-                    raise e
+                raise e
 
-                if obj.model.status.succeeded == 1:
-                    return_value = True
-                    break
-                if obj.model.status.failed == 1:
-                    conds = obj.model.status.conditions[0]
-                    logging.error(
-                        "Job failed: {}, reason: {}".format(conds.message, conds.reason)
-                    )
-                    return_Value = False
-                    break
-
-                time.sleep(1)
-
-                now = dt.datetime.now()
-                if now - last > dt.timedelta(seconds=20):
-                    wait_time -= dt.timedelta(seconds=20)
-                    logging.info("Still waiting, {} remaining".format(wait_time))
-                    last = now
+            if o.model.status.succeeded == 1:
+                return_value = True
+                break
+            if o.model.status.failed == 1:
+                conds = o.model.status.conditions[0]
+                logging.error(
+                    "Job failed: {}, reason: {}".format(conds.message, conds.reason)
+                )
+                return_Value = False
+                break
 
         if not return_value:
             job_start_time = obj.model.status.startTime
@@ -321,21 +378,10 @@ class Agent:
                 "Pods that failed: {}".format([x.model.metadata.name for x in pods])
             )
             for pod in pods:
-                logging.error(
-                    "Pod {} description: {}".format(
-                        pod.model.metadata.name, pod.describe()
-                    )
-                )
-
-                for k, v in pod.logs().items():
-                    logging.error(
-                        "Pod {} logs: {}".format(
-                            pod.model.metadata.name, v.replace("\\n", "\n")
-                        )
-                )
+                dump_failed_pod_information(pod)
 
         else:
-            obj = oc.selector(
+            o = oc.selector(
                 "{}/{}".format(obj.model.kind, obj.model.metadata.name)
             ).object()
 
@@ -345,12 +391,21 @@ class Agent:
                 for k, v in pod.logs().items():
                     logging.info(v.replace("\\n", "\n"))
 
-            logging.info(
-                "Job {} finished successfully after {}".format(
-                    obj.model.metadata.name,
-                    _parse_time(obj.model.status.completionTime)
-                    - _parse_time(obj.model.status.startTime),
-                )
+            compl = (
+                _parse_time(obj.model.status.completionTime)
+                if obj.model.status.completionTime != oc.Missing
+                else None
             )
+            start = (
+                _parse_time(obj.model.status.startTime)
+                if obj.model.status.startTime != oc.Missing
+                else None
+            )
+            msg = f"{obj.model.kind} {obj.model.metadata.name} finished successfully"
+
+            if compl is not None and start is not None:
+                msg += " after {}".format(compl - start)
+
+            logging.info(msg)
 
         return return_value

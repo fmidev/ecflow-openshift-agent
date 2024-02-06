@@ -18,9 +18,8 @@ URL:            http://www.fmi.fi
 Source0: 	%{name}.tar.gz
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires:  python3-devel
-Requires:       python3
-Requires:       python3dist(openshift-client)
-Provides:	%{name}
+Requires:       python3-openshift-client
+Provides:	python3dist(ecflow-openshift-agent)
 
 AutoReqProv: no
 
@@ -31,21 +30,26 @@ ecflow openshift agent is a tool for running ecflow jobs in openshift.
 It automatically creates jobs from temnplates and monitors their progress.
 
 %prep
-%setup -q -n "grid-check"
+%setup -q -n "ecflow-openshift-agent"
 
 %build
+%py3_build
 
 %install
 rm -rf $RPM_BUILD_ROOT
+
+%py3_install
+
 mkdir -p %{buildroot}/%{_bindir}
-cp -a grid-check.py %{buildroot}/%{_bindir}/grid-check.py
+cp -a run-agent.py %{buildroot}/%{_bindir}/
 
 %clean
 rm -rf %{buildroot}
 
 %files
 %defattr(-,root,root,0755)
-%{_bindir}/grid-check.py
+%{python3_sitelib}/ecflow_openshift_agent*
+%{_bindir}/run-agent.py
 
 %changelog
 * Tue May 31 2022 Mikko Partio <mikko.partio@fmi.fi> - 22.5.31-1.fmi

@@ -1,7 +1,18 @@
-from agent import Agent
+#!/usr/bin/env python3
+from ecflow_openshift_agent import Agent
 import argparse
 import logging
 import sys
+import os
+import subprocess
+
+
+def cleanup():
+    try:
+        os.remove(os.environ["KUBECONFIG"])
+    except:
+        pass
+
 
 def string_to_log_level(log_level):
     if log_level == "critical":
@@ -63,18 +74,18 @@ def parse_args():
         help="override job name, when creating job from template",
     )
     parser.add_argument(
-            "--job-param",
-            type=str,
-            action='append',
-            default=[],
-            help="job parameters, when creating job from template",
+        "--job-param",
+        type=str,
+        action="append",
+        default=[],
+        help="job parameters, when creating job from template",
     )
     parser.add_argument(
-            "--job-timeout",
-            type=str,
-            default="60s",
-            help="job timeout, when creating job from template",
-            )
+        "--job-timeout",
+        type=str,
+        default="60s",
+        help="job timeout, when creating job from template",
+    )
     args = parser.parse_args()
     args.log_level = string_to_log_level(args.log_level)
 
@@ -95,7 +106,7 @@ if args.command == "create-job-from-template":
 
     params = {}
     for kv in args.job_param:
-        k,v = kv.split('=')
+        k, v = kv.split("=", maxsplit=1)
         params[k] = v
 
     ret = agent.create_job_from_template(
@@ -106,7 +117,11 @@ if args.command == "create-job-from-template":
     )
 
     if not ret:
+        cleanup()
         sys.exit(1)
 else:
     print("Invalid command: {}".format(args.command))
+    cleanup()
     sys.exit(1)
+
+cleanup()
