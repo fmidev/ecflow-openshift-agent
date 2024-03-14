@@ -23,6 +23,10 @@ run-agent.py: error: the following arguments are required: --token-from-env-key,
 
 ### Example
 
+Create a job in oc project myproject called myjob from template mytemplate. Template needs two arguments foo and baz which are provided. 
+
+Agent will wait maximum 30 seconds for the job to finish (does not matter if it succeeds of fails). If job finishes before 30 seconds, agent will return with the return value of the job.
+
 ```
 $ run-agent.py \
       --token-from-env-key oc_token \
@@ -30,8 +34,9 @@ $ run-agent.py \
       --project myproject \
       --command create-job-from-template \
       --template-name mytemplate \
-      --override-job-name mytemplate-bar \
+      --override-job-name myjob \
       --job-param foo=bar \
+      --job-param baz=bar \
       --job-timeout 30s
 ```
 
