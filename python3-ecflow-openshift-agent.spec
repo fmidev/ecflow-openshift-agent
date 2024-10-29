@@ -19,6 +19,7 @@ Source0: 	%{name}.tar.gz
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires:  python3-devel
 Requires:       python3-openshift-client
+Requires:	python3-pyyaml
 Provides:	python3dist(ecflow-openshift-agent)
 
 AutoReqProv: no
