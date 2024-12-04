@@ -44,22 +44,26 @@ def parse_args():
         help="command: create_job_from_template",
     )
     parser.add_argument(
+        "--no-login",
+        action='store_true',
+    )
+    parser.add_argument(
         "--token-from-env-key",
         type=str,
-        required=True,
+        required=False if "--no-login" in sys.argv else True,
         default="ECFLOW_OPENSHIFT_TOKEN",
         help="token from env: ECFLOW_OPENSHIFT_TOKEN",
     )
     parser.add_argument(
         "--api-server-url",
         type=str,
-        required=True,
+        required=False if "--no-login" in sys.argv else True,
         help="api server url: https://api.openshift.com",
     )
     parser.add_argument(
         "--project",
         type=str,
-        required=True,
+        required=False if "--no-login" in sys.argv else True,
         help="openshift project (namespace)",
     )
     parser.add_argument(
@@ -99,6 +103,7 @@ agent = Agent(
     project=args.project,
     token_from_env_key=args.token_from_env_key,
     log_level=args.log_level,
+    no_login=args.no_login
 )
 
 if args.command == "create-job-from-template":
