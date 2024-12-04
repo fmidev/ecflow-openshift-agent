@@ -120,26 +120,32 @@ class Agent:
         token=None,
         token_from_env_key=None,
         log_level=logging.INFO,
+        no_login=False,
     ):
         self.project = project
         self.api_server_url = api_server_url
         self.kubeconfig = set_kubeconfig()
 
-        with oc.api_server(self.api_server_url), oc.project(self.project):
-            if username is not None and password is not None:
-                oc.login(username, password)
-            else:
-                self.token = None
-                if token is not None:
-                    self.token = token
-                elif token_from_env_key is not None:
-                    self.token = os.environ[token_from_env_key]
+        if no_login:
+            logging.info(f"Agent is run from within the OpenShift environment, so no login is required.")
+            logging.info(f"Logged in as {oc.whoami()}")
+            logging.info(f"Current project: {oc.get_project_name()}")
+        else:
+            with oc.api_server(self.api_server_url), oc.project(self.project):
+                if username is not None and password is not None:
+                    oc.login(username, password)
+                else:
+                    self.token = None
+                    if token is not None:
+                        self.token = token
+                    elif token_from_env_key is not None:
+                        self.token = os.environ[token_from_env_key]
 
-                assert (
-                    self.token is not None
-                ), "No login credentials given, either username/password or token is required"
+                    assert (
+                        self.token is not None
+                    ), "No login credentials given, either username/password or token is required"
 
-                self.login_with_token(self.token)
+                    self.login_with_token(self.token)
 
             logging.info(f"Logged in as {oc.whoami()}")
 
