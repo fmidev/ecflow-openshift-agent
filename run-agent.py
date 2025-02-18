@@ -40,8 +40,8 @@ def parse_args():
     parser.add_argument(
         "--command",
         type=str,
-        default="create_job_from_template",
-        help="command: create_job_from_template",
+        default="create-job-from-template",
+        help="command: create-job-from-template or print-logs-for-job",
     )
     parser.add_argument(
         "--token-from-env-key",
@@ -66,6 +66,16 @@ def parse_args():
         "--template-name",
         type=str,
         help="template name, when creating job from template",
+    )
+    parser.add_argument(
+        "--job-name",
+        type=str,
+        help="job name, when getting logs from an existing job",
+    )
+    parser.add_argument(
+        "--log-container-name",
+        nargs="+",
+        help="specify container name when getting logs (default: all containers)",
     )
     parser.add_argument(
         "--override-job-name",
@@ -101,6 +111,8 @@ agent = Agent(
     log_level=args.log_level,
 )
 
+return_code = None
+
 if args.command == "create-job-from-template":
     assert args.template_name is not None, "template_name is required"
 
@@ -109,19 +121,24 @@ if args.command == "create-job-from-template":
         k, v = kv.split("=", maxsplit=1)
         params[k] = v
 
-    ret = agent.create_job_from_template(
+    return_code = agent.create_job_from_template(
         template_name=args.template_name,
         override_job_name=args.override_job_name,
         parameters=params,
         timeout=args.job_timeout,
+        log_container_name=args.log_container_name,
     )
 
-    if not ret:
-        cleanup()
-        sys.exit(1)
+elif args.command == "print-logs-for-job":
+    assert args.job_name is not None, "job_name is required"
+    return_code, logs = agent.get_logs_for_job(args.job_name, args.log_container_name)
+
+    if return_code:
+        print(logs.replace("\\n", "\n"))
 else:
     print("Invalid command: {}".format(args.command))
-    cleanup()
-    sys.exit(1)
+    return_code = 1
+
 
 cleanup()
+sys.exit(return_code == False)

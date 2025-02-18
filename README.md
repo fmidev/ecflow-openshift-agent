@@ -42,7 +42,9 @@ $ run-agent.py \
 
 ### Options
 * `--log-level`: increase or decrease logging, value 1...5 (OPTIONAL)
-* `--command`: specify command for agent, currently only one command supported (create-job-from-template)
+* `--command`: specify command for agent, supported values:
+  * create-job-from-template: creates a new job from an existing template in openshift
+  * print-logs-for-job: prints the output of each container of a job
 * `--token-from-env-key`: specify from which environment variable should a token be read. Note this is not the token itself, but the variable that holds the key
 * `--api-server-url`: address of the openshift api (must include protocol)
 * `--project`: openshift project (namespace)
@@ -50,3 +52,5 @@ $ run-agent.py \
 * `--override-job-name`: override the created job name with this (OPTIONAL)
 * `--job-param`: specify a job template parameter, key=value (OPTIONAL)
 * `--job-timeout`: specify timeout for the job, must include time unit for example 60s (OPTIONAL)
+* `--job-name`: specify job name to print logs for (only when command=print-logs-for-job)
+* `--log-container-name: specify which container logs to print, multiple names can be specified (OPTIONAL)

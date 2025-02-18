@@ -174,6 +174,91 @@ class Agent:
         )
         return True
 
+    def get_logs_for_job(self, job_name, container_name=None):
+        def get_logs(pod_name, container_name):
+            # Create a result for fetching logs
+            log_result = oc.Result("get-logs")
+            log_result.add_action(
+                oc.oc_action(
+                    oc.cur_context(),
+                    "logs",
+                    cmd_args=[pod_name, "-c", container_name, None],
+                )
+            )
+            log_result.fail_if(f"Unable to get logs for pod {pod_name} container {container_name}")
+            return log_result.out()
+
+        if container_name is not None and type(container_name) == str:
+            container_name = [container_name]
+
+        r = oc.Result("get-job")
+        r.add_action(
+            oc.oc_action(
+                oc.cur_context(),
+                "get",
+                cmd_args=["job", job_name, "-o", "json", None],
+            )
+        )
+        r.fail_if(f"Unable to get job {job_name}")
+
+        job = oc.APIObject(string_to_model=r.out().strip())
+        job.model.metadata.namespace = ""
+
+        label_selector = f"job-name={job.model.metadata.name}"
+
+        pod_result = oc.Result("get-pods-for-job")
+        pod_result.add_action(
+            oc.oc_action(
+                oc.cur_context(),
+                "get",
+                cmd_args=["pod", "-l", label_selector, "-o", "json", None],
+            )
+        )
+
+        pod_result.fail_if(f"Unable to get pods for job {job.model.metadata.name}")
+
+        pods_api_obj = oc.APIObject(string_to_model=pod_result.out().strip())
+
+        if len(pods_api_obj.model["items"]) == 0:
+            logging.error(f"No pods found for job {job_name}")
+            return False, _
+
+        logs = ""
+
+        if container_name is None:
+            # If user has not specified containers, list all
+            container_name = [
+                x["name"] for x in job.model.spec.template.spec.initContainers
+            ]
+            container_name += [x["name"] for x in job.model.spec.template.spec.containers]
+
+        for req_name in container_name:
+            found = False
+            for pod in pods_api_obj.model["items"]:
+                pod_name = pod["metadata"]["name"]
+
+                all_containers = pod.spec.containers + pod.spec.initContainers
+
+                for container in all_containers:
+                    name = container["name"]
+                    if req_name != name:
+                        continue
+
+                    found = True
+                    logs += f"\npod: {pod_name} container: {name}\n"
+                    logs += "-" * 80
+                    logs += "\n" + get_logs(pod["metadata"]["name"], name)
+                    logs += "-" * 80
+
+                    break
+
+            if not found:
+                logging.error(f"Container {req_name} not found in any pod")
+                return False, logs
+
+        return True, logs
+
+
     def create_job_from_template(
         self,
         template_name,
@@ -183,6 +268,7 @@ class Agent:
         delete_if_found=True,
         delete_after_finished=False,
         timeout="9999s",
+        log_container_name=None,
     ):
         oc.tracking()
         if template_name.islower() == False:
@@ -257,7 +343,7 @@ class Agent:
 
         ret = True
         for o in obj_sel.objects():
-            ret = self.wait_until_finished(o, timeout)
+            ret = self.wait_until_finished(o, timeout, log_container_name)
             if not ret:
                 ret = False
 
@@ -279,7 +365,7 @@ class Agent:
         )
         r.fail_if(f"Unable to delete {kind} {name}")
 
-    def wait_until_finished(self, obj, timeout):
+    def wait_until_finished(self, obj, timeout, log_container_name):
         def dump_failed_pod_information(pod):
             logging.error("{}".format(pod.describe()))
 
@@ -381,15 +467,8 @@ class Agent:
                 dump_failed_pod_information(pod)
 
         else:
-            o = oc.selector(
-                "{}/{}".format(obj.model.kind, obj.model.metadata.name)
-            ).object()
-
-            sel = oc.selector("pod", labels={"job-name": obj.model.metadata.name})
-
-            for pod in sel.objects():
-                for k, v in pod.logs().items():
-                    logging.info(v.replace("\\n", "\n"))
+            _, logs = self.get_logs_for_job(obj.model.metadata.name, log_container_name)
+            logging.info(logs.replace("\\n", "\n"))
 
             compl = (
                 _parse_time(obj.model.status.completionTime)
