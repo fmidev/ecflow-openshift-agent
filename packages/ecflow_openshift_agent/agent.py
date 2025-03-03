@@ -237,7 +237,8 @@ class Agent:
             for pod in pods_api_obj.model["items"]:
                 pod_name = pod["metadata"]["name"]
 
-                all_containers = pod.spec.containers + pod.spec.initContainers
+                init_containers = [] if pod.spec.initContainers == oc.Missing else pod.spec.initContainers
+                all_containers = pod.spec.containers + init_containers
 
                 for container in all_containers:
                     name = container["name"]
