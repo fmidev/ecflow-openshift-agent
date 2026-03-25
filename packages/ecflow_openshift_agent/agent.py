@@ -459,7 +459,7 @@ class Agent:
             job_start_time = obj.model.status.startTime
             sel = oc.selector("pod", labels={"job-name": obj.model.metadata.name})
             pods = sel.objects()
-            pods = [x for x in pods if x.model.status.startTime >= job_start_time]
+            pods = [x for x in pods if x.model.status.startTime != oc.Missing and x.model.status.startTime >= job_start_time]
 
             logging.error(
                 "Pods that failed: {}".format([x.model.metadata.name for x in pods])
