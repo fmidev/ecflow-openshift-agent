@@ -342,10 +342,18 @@ class Agent:
         if run_async is True:
             return
 
+        runnable_kinds = {"Job"}
+
         ret = True
         for o in obj_sel.objects():
-            ret = self.wait_until_finished(o, timeout, log_container_name)
-            if not ret:
+            if o.model.kind not in runnable_kinds:
+                logging.info(
+                    "Skipping wait for {}/{} (not a runnable kind)".format(
+                        o.model.kind, o.model.metadata.name
+                    )
+                )
+                continue
+            if not self.wait_until_finished(o, timeout, log_container_name):
                 ret = False
 
         return ret
